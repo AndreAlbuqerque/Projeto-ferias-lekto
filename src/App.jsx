@@ -277,7 +277,7 @@ export default function App() {
             <div className="w-px h-6 bg-slate-200" />
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100">
               <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-semibold text-indigo-700">RH</div>
-              <span className="text-sm text-slate-700 font-medium">rafael.hakme</span>
+              <span className="text-sm text-slate-700 font-medium">Recursos Humanos</span>
             </div>
             <button onClick={sair} className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition" title="Sair">
               <LogOut className="w-4 h-4" />
