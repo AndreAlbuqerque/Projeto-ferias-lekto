@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Users, Calendar, AlertTriangle, TrendingUp, Plus, Download, X, ChevronRight, CheckCircle2, Clock, Search, Filter, Trash2, LogOut, Lock } from 'lucide-react';
-import { db } from './firebaseClient';
+import { db, auth } from './firebaseClient';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { signInAnonymously } from 'firebase/auth';
 
 // ============================================================
 // MOTOR DE CÁLCULO
@@ -31,9 +32,37 @@ function calcularSaldo(colaborador, feriasDoColaborador) {
   const totalAdquirido = periodosCompletos * DIAS_POR_AQUISITIVO;
   const totalUsufruido = feriasDoColaborador.reduce((acc, f) => acc + diffDias(f.dataInicio, f.dataFim), 0);
   const saldoBruto = totalAdquirido - totalUsufruido;
-  const saldoEfetivo = Math.min(saldoBruto, TETO);
-  const diasPerdidos = Math.max(0, saldoBruto - saldoEfetivo);
   const adm = new Date(colaborador.dataAdmissao);
+
+  // Simula o saldo em ordem cronológica: cada período aquisitivo concede
+  // 15 dias na sua própria data, cada férias registrada consome dias na
+  // data de início. Só entra como "perdido" o dia que de fato ultrapassou
+  // o teto no momento em que foi concedido — não o total da carreira inteira.
+  // Isso permite cadastrar histórico de férias já usadas sem gerar alarme falso.
+  const eventos = [];
+  for (let i = 1; i <= periodosCompletos; i++) {
+    const dataConcessao = new Date(adm);
+    dataConcessao.setMonth(adm.getMonth() + i * MESES_POR_AQUISITIVO);
+    eventos.push({ data: dataConcessao, dias: DIAS_POR_AQUISITIVO, tipo: 'aquisicao' });
+  }
+  feriasDoColaborador.forEach(f => {
+    eventos.push({ data: new Date(f.dataInicio), dias: -diffDias(f.dataInicio, f.dataFim), tipo: 'uso' });
+  });
+  eventos.sort((a, b) => a.data - b.data);
+
+  let saldoCorrente = 0;
+  let diasPerdidos = 0;
+  eventos.forEach(ev => {
+    if (ev.tipo === 'aquisicao') {
+      const saldoAntes = saldoCorrente;
+      saldoCorrente = Math.min(TETO, saldoCorrente + ev.dias);
+      diasPerdidos += ev.dias - (saldoCorrente - saldoAntes);
+    } else {
+      saldoCorrente = Math.max(0, saldoCorrente + ev.dias);
+    }
+  });
+  const saldoEfetivo = saldoCorrente;
+
   const proxAquisitivo = new Date(adm);
   proxAquisitivo.setMonth(adm.getMonth() + (periodosCompletos + 1) * MESES_POR_AQUISITIVO);
   let status = 'saudavel';
@@ -53,14 +82,28 @@ function formatarData(d) {
 function TelaLogin({ onLogin }) {
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState(false);
+  const [mensagemErro, setMensagemErro] = useState('Senha incorreta');
+  const [entrando, setEntrando] = useState(false);
 
-  const entrar = () => {
-    if (senha === import.meta.env.VITE_APP_PASSWORD) {
-      sessionStorage.setItem('lekto:auth', '1');
-      onLogin();
-    } else {
+  const entrar = async () => {
+    if (senha !== import.meta.env.VITE_APP_PASSWORD) {
+      setMensagemErro('Senha incorreta');
       setErro(true);
       setSenha('');
+      return;
+    }
+    setEntrando(true);
+    try {
+      await signInAnonymously(auth);
+      sessionStorage.setItem('lekto:auth', '1');
+      onLogin();
+    } catch (e) {
+      console.error('Falha ao autenticar no Firebase:', e);
+      setMensagemErro('Não foi possível conectar. Tente novamente.');
+      setErro(true);
+      setSenha('');
+    } finally {
+      setEntrando(false);
     }
   };
 
@@ -89,13 +132,14 @@ function TelaLogin({ onLogin }) {
                 autoFocus
               />
             </div>
-            {erro && <p className="text-xs text-rose-600 mt-1">Senha incorreta</p>}
+            {erro && <p className="text-xs text-rose-600 mt-1">{mensagemErro}</p>}
           </div>
           <button
             onClick={entrar}
-            className="w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+            disabled={entrando}
+            className="w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-60"
           >
-            Entrar
+            {entrando ? 'Entrando...' : 'Entrar'}
           </button>
         </div>
       </div>
@@ -117,42 +161,54 @@ export default function App() {
   const [modalNovoColab, setModalNovoColab] = useState(false);
   const [busca, setBusca] = useState('');
   const [filtroTime, setFiltroTime] = useState('todos');
+  const [erroCarregamento, setErroCarregamento] = useState(null);
+  const [tentativa, setTentativa] = useState(0);
 
-  // Carrega dados do Supabase
+  // Carrega dados do Firestore
   useEffect(() => {
     if (!autenticado) return;
     async function carregar() {
       setCarregando(true);
-      const [colaboradoresSnap, feriasSnap] = await Promise.all([
-        getDocs(collection(db, 'colaboradores')),
-        getDocs(collection(db, 'ferias')),
-      ]);
-      setColaboradores(colaboradoresSnap.docs.map(d => {
-        const c = d.data();
-        return {
-          id: d.id,
-          nome: c.nome,
-          cargo: c.cargo,
-          time: c.time,
-          email: c.email,
-          dataAdmissao: c.dataAdmissao,
-          status: c.status,
-        };
-      }));
-      setFerias(feriasSnap.docs.map(d => {
-        const f = d.data();
-        return {
-          id: d.id,
-          colaboradorId: f.colaboradorId,
-          dataInicio: f.dataInicio,
-          dataFim: f.dataFim,
-          observacao: f.observacao || '',
-        };
-      }));
-      setCarregando(false);
+      setErroCarregamento(null);
+      try {
+        if (!auth.currentUser) {
+          await signInAnonymously(auth);
+        }
+        const [colaboradoresSnap, feriasSnap] = await Promise.all([
+          getDocs(collection(db, 'colaboradores')),
+          getDocs(collection(db, 'ferias')),
+        ]);
+        setColaboradores(colaboradoresSnap.docs.map(d => {
+          const c = d.data();
+          return {
+            id: d.id,
+            nome: c.nome,
+            cargo: c.cargo,
+            time: c.time,
+            email: c.email,
+            dataAdmissao: c.dataAdmissao,
+            status: c.status,
+          };
+        }));
+        setFerias(feriasSnap.docs.map(d => {
+          const f = d.data();
+          return {
+            id: d.id,
+            colaboradorId: f.colaboradorId,
+            dataInicio: f.dataInicio,
+            dataFim: f.dataFim,
+            observacao: f.observacao || '',
+          };
+        }));
+      } catch (e) {
+        console.error('Falha ao carregar dados do Firestore:', e);
+        setErroCarregamento('Não foi possível carregar os dados. Verifique sua conexão e tente novamente.');
+      } finally {
+        setCarregando(false);
+      }
     }
     carregar();
-  }, [autenticado]);
+  }, [autenticado, tentativa]);
 
   const sair = () => {
     sessionStorage.removeItem('lekto:auth');
@@ -244,6 +300,23 @@ export default function App() {
   };
 
   if (!autenticado) return <TelaLogin onLogin={() => setAutenticado(true)} />;
+
+  if (erroCarregamento) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="text-center max-w-sm">
+          <AlertTriangle className="w-8 h-8 text-rose-500 mx-auto mb-3" />
+          <p className="text-sm text-slate-700 mb-4">{erroCarregamento}</p>
+          <button
+            onClick={() => setTentativa(t => t + 1)}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (carregando) {
     return (

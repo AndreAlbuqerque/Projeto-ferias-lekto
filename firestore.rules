@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// Projeto interno de uso restrito à equipe de RH da Lekto.
+// Acesso liberado para qualquer sessão autenticada no Firebase
+// (o app usa autenticação anônima após validar a senha de acesso).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
