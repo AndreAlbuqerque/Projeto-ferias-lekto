@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, Calendar, AlertTriangle, TrendingUp, Plus, Download, X, ChevronRight, CheckCircle2, Clock, Search, Filter, Trash2, LogOut, Lock } from 'lucide-react';
+import { Users, Calendar, AlertTriangle, TrendingUp, Plus, Download, X, ChevronRight, CheckCircle2, Clock, Search, Filter, Trash2, LogOut, Lock, Pencil } from 'lucide-react';
 import { db, auth } from './firebaseClient';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { signInAnonymously } from 'firebase/auth';
@@ -171,6 +171,8 @@ export default function App() {
   const [colaboradorSelecionado, setColaboradorSelecionado] = useState(null);
   const [modalNovaFerias, setModalNovaFerias] = useState(false);
   const [modalNovoColab, setModalNovoColab] = useState(false);
+  const [feriasEmEdicao, setFeriasEmEdicao] = useState(null);
+  const [colaboradorEmEdicao, setColaboradorEmEdicao] = useState(false);
   const [busca, setBusca] = useState('');
   const [filtroTime, setFiltroTime] = useState('todos');
   const [erroCarregamento, setErroCarregamento] = useState(null);
@@ -267,6 +269,18 @@ export default function App() {
     setModalNovaFerias(false);
   };
 
+  const editarFerias = async (id, dados) => {
+    await setDoc(doc(db, 'ferias', id), {
+      colaboradorId: dados.colaboradorId,
+      dataInicio: dados.dataInicio,
+      dataFim: dados.dataFim,
+      observacao: dados.observacao || '',
+    });
+    setFerias(prev => prev.map(f => f.id === id ? { id, ...dados } : f));
+    setModalNovaFerias(false);
+    setFeriasEmEdicao(null);
+  };
+
   const adicionarColaborador = async (dados) => {
     const novoId = String(Date.now());
     await setDoc(doc(db, 'colaboradores', novoId), {
@@ -279,6 +293,22 @@ export default function App() {
     });
     setColaboradores(prev => [...prev, { id: novoId, status: 'ativo', ...dados }]);
     setModalNovoColab(false);
+  };
+
+  const editarColaborador = async (id, dados) => {
+    // Sem "status" aqui de propósito: com merge:true, o campo não enviado
+    // fica como já estava salvo — evita reverter um colaborador inativo
+    // para "ativo" só por editar outro dado.
+    await setDoc(doc(db, 'colaboradores', id), {
+      nome: dados.nome,
+      email: dados.email,
+      cargo: dados.cargo,
+      time: dados.time,
+      dataAdmissao: dados.dataAdmissao,
+    }, { merge: true });
+    setColaboradores(prev => prev.map(c => c.id === id ? { ...c, ...dados } : c));
+    setModalNovoColab(false);
+    setColaboradorEmEdicao(false);
   };
 
   const removerFerias = async (id) => {
@@ -552,6 +582,9 @@ export default function App() {
                     <button onClick={() => removerColaborador(c.id)} className="flex items-center gap-2 px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 rounded-lg transition border border-rose-200">
                       <Trash2 className="w-4 h-4" /> Excluir
                     </button>
+                    <button onClick={() => setColaboradorEmEdicao(true)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg transition border border-slate-200">
+                      <Pencil className="w-4 h-4" /> Editar
+                    </button>
                     <button onClick={() => setModalNovaFerias(true)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition shadow-sm">
                       <Plus className="w-4 h-4" /> Registrar férias
                     </button>
@@ -604,7 +637,12 @@ export default function App() {
                           <td className="px-5 py-3 text-sm text-slate-900">{formatarData(f.dataInicio)} → {formatarData(f.dataFim)}</td>
                           <td className="px-5 py-3 text-sm font-medium text-slate-900">{diffDias(f.dataInicio, f.dataFim)}</td>
                           <td className="px-5 py-3 text-sm text-slate-500">{f.observacao || '—'}</td>
-                          <td className="px-2"><button onClick={() => removerFerias(f.id)} className="text-slate-400 hover:text-rose-600 p-1"><X className="w-4 h-4" /></button></td>
+                          <td className="px-2">
+                            <div className="flex items-center">
+                              <button onClick={() => setFeriasEmEdicao(f)} className="text-slate-400 hover:text-indigo-600 p-1"><Pencil className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => removerFerias(f.id)} className="text-slate-400 hover:text-rose-600 p-1"><X className="w-4 h-4" /></button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -616,17 +654,19 @@ export default function App() {
         })()}
       </main>
 
-      {modalNovaFerias && (
+      {(modalNovaFerias || feriasEmEdicao) && (
         <ModalNovaFerias
           colaborador={colaboradoresComSaldo.find(c => c.id === colaboradorSelecionado)}
-          onClose={() => setModalNovaFerias(false)}
-          onSalvar={adicionarFerias}
+          feriasParaEditar={feriasEmEdicao}
+          onClose={() => { setModalNovaFerias(false); setFeriasEmEdicao(null); }}
+          onSalvar={feriasEmEdicao ? (dados) => editarFerias(feriasEmEdicao.id, dados) : adicionarFerias}
         />
       )}
-      {modalNovoColab && (
+      {(modalNovoColab || colaboradorEmEdicao) && (
         <ModalNovoColaborador
-          onClose={() => setModalNovoColab(false)}
-          onSalvar={adicionarColaborador}
+          colaboradorParaEditar={colaboradorEmEdicao ? colaboradoresComSaldo.find(c => c.id === colaboradorSelecionado) : null}
+          onClose={() => { setModalNovoColab(false); setColaboradorEmEdicao(false); }}
+          onSalvar={colaboradorEmEdicao ? (dados) => editarColaborador(colaboradorSelecionado, dados) : adicionarColaborador}
         />
       )}
     </div>
@@ -676,19 +716,24 @@ function InfoItem({ label, valor, destaque }) {
   );
 }
 
-function ModalNovaFerias({ colaborador, onClose, onSalvar }) {
-  const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
-  const [observacao, setObservacao] = useState('');
+function ModalNovaFerias({ colaborador, feriasParaEditar, onClose, onSalvar }) {
+  const [dataInicio, setDataInicio] = useState(feriasParaEditar?.dataInicio || '');
+  const [dataFim, setDataFim] = useState(feriasParaEditar?.dataFim || '');
+  const [observacao, setObservacao] = useState(feriasParaEditar?.observacao || '');
   const dias = dataInicio && dataFim ? diffDias(dataInicio, dataFim) : 0;
-  const saldoAposRegistro = colaborador ? colaborador.saldoEfetivo - dias : 0;
-  const excedeSaldo = colaborador && dias > colaborador.saldoEfetivo;
+  // Ao editar, o período atual já está descontado do saldo do colaborador —
+  // soma de volta os dias dele antes de comparar, senão a edição sempre
+  // pareceria exceder o saldo.
+  const diasDoRegistroOriginal = feriasParaEditar ? diffDias(feriasParaEditar.dataInicio, feriasParaEditar.dataFim) : 0;
+  const saldoDisponivel = colaborador ? colaborador.saldoEfetivo + diasDoRegistroOriginal : 0;
+  const saldoAposRegistro = saldoDisponivel - dias;
+  const excedeSaldo = colaborador && dias > saldoDisponivel;
   const podeSalvar = dataInicio && dataFim && dias > 0 && !excedeSaldo;
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-          <div><h3 className="font-bold text-slate-900">Registrar férias</h3><p className="text-xs text-slate-500 mt-0.5">{colaborador?.nome}</p></div>
+          <div><h3 className="font-bold text-slate-900">{feriasParaEditar ? 'Editar férias' : 'Registrar férias'}</h3><p className="text-xs text-slate-500 mt-0.5">{colaborador?.nome}</p></div>
           <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-6 space-y-4">
@@ -709,8 +754,8 @@ function ModalNovaFerias({ colaborador, onClose, onSalvar }) {
           {dias > 0 && (
             <div className={`p-3 rounded-lg text-sm ${excedeSaldo ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-slate-50 text-slate-700'}`}>
               <div className="flex justify-between"><span>Dias do período:</span><strong>{dias}</strong></div>
-              <div className="flex justify-between"><span>Saldo atual:</span><strong>{colaborador?.saldoEfetivo}</strong></div>
-              <div className="flex justify-between border-t border-slate-200 mt-2 pt-2"><span>Saldo após registro:</span><strong>{Math.max(0, saldoAposRegistro)}</strong></div>
+              <div className="flex justify-between"><span>Saldo disponível:</span><strong>{saldoDisponivel}</strong></div>
+              <div className="flex justify-between border-t border-slate-200 mt-2 pt-2"><span>Saldo após {feriasParaEditar ? 'salvar' : 'registro'}:</span><strong>{Math.max(0, saldoAposRegistro)}</strong></div>
               {excedeSaldo && <p className="text-xs mt-2 flex items-center gap-1"><AlertTriangle className="w-3 h-3" />Período excede saldo disponível</p>}
             </div>
           )}
@@ -724,18 +769,18 @@ function ModalNovaFerias({ colaborador, onClose, onSalvar }) {
   );
 }
 
-function ModalNovoColaborador({ onClose, onSalvar }) {
-  const [nome, setNome] = useState('');
-  const [email, setEmail] = useState('');
-  const [cargo, setCargo] = useState('');
-  const [time, setTime] = useState('Tecnologia');
-  const [dataAdmissao, setDataAdmissao] = useState('');
+function ModalNovoColaborador({ colaboradorParaEditar, onClose, onSalvar }) {
+  const [nome, setNome] = useState(colaboradorParaEditar?.nome || '');
+  const [email, setEmail] = useState(colaboradorParaEditar?.email || '');
+  const [cargo, setCargo] = useState(colaboradorParaEditar?.cargo || '');
+  const [time, setTime] = useState(colaboradorParaEditar?.time || 'Tecnologia');
+  const [dataAdmissao, setDataAdmissao] = useState(colaboradorParaEditar?.dataAdmissao || '');
   const podeSalvar = nome && email && cargo && dataAdmissao;
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-          <h3 className="font-bold text-slate-900">Novo colaborador</h3>
+          <h3 className="font-bold text-slate-900">{colaboradorParaEditar ? 'Editar colaborador' : 'Novo colaborador'}</h3>
           <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-6 space-y-4">
@@ -752,7 +797,7 @@ function ModalNovoColaborador({ onClose, onSalvar }) {
         </div>
         <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg">Cancelar</button>
-          <button disabled={!podeSalvar} onClick={() => onSalvar({ nome, email, cargo, time, dataAdmissao })} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed">Cadastrar</button>
+          <button disabled={!podeSalvar} onClick={() => onSalvar({ nome, email, cargo, time, dataAdmissao })} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed">{colaboradorParaEditar ? 'Salvar' : 'Cadastrar'}</button>
         </div>
       </div>
     </div>
