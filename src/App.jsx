@@ -486,7 +486,9 @@ export default function App() {
                     <option value="Tecnologia">Tecnologia</option>
                     <option value="Operações">Operações</option>
                     <option value="Administrativo">Administrativo</option>
-                    <option value="Educação">Educação</option>
+                    <option value="Pedagógico">Pedagógico</option>
+                    <option value="Comercial">Comercial</option>
+                    <option value="Comunicação">Comunicação</option>
                   </select>
                 </div>
               </div>
@@ -743,7 +745,7 @@ function ModalNovoColaborador({ onClose, onSalvar }) {
           <div>
             <label className="text-xs font-medium text-slate-700 mb-1 block">Time</label>
             <select value={time} onChange={e => setTime(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option>Tecnologia</option><option>Operações</option><option>Administrativo</option><option>Educação</option>
+              <option>Tecnologia</option><option>Operações</option><option>Administrativo</option><option>Pedagógico</option><option>Comercial</option><option>Comunicação</option>
             </select>
           </div>
           <div><label className="text-xs font-medium text-slate-700 mb-1 block">Data de admissão</label><input type="date" value={dataAdmissao} onChange={e => setDataAdmissao(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
