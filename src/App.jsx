@@ -12,17 +12,29 @@ const TETO = 45;
 const DIAS_POR_AQUISITIVO = 15;
 const MESES_POR_AQUISITIVO = 6;
 
+// Converte uma data "YYYY-MM-DD" (vinda de <input type="date"> ou do Firestore)
+// em Date usando o construtor local (ano, mês, dia) — nunca por
+// new Date(string), que o JS interpreta como meia-noite UTC e, ao ser lido
+// depois com getDate()/toLocaleDateString() (que usam o fuso local), pode
+// "voltar" um dia em qualquer fuso atrás de UTC, como o do Brasil.
+// Se já vier um Date pronto (ex: HOJE), retorna sem alterar.
+function paraData(valor) {
+  if (valor instanceof Date) return valor;
+  const [ano, mes, dia] = valor.split('-').map(Number);
+  return new Date(ano, mes - 1, dia);
+}
+
 function diffMeses(inicio, fim) {
-  const a = new Date(inicio);
-  const b = new Date(fim);
+  const a = paraData(inicio);
+  const b = paraData(fim);
   let meses = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
   if (b.getDate() < a.getDate()) meses--;
   return Math.max(0, meses);
 }
 
 function diffDias(inicio, fim) {
-  const a = new Date(inicio);
-  const b = new Date(fim);
+  const a = paraData(inicio);
+  const b = paraData(fim);
   return Math.round((b - a) / (1000 * 60 * 60 * 24)) + 1;
 }
 
@@ -32,7 +44,7 @@ function calcularSaldo(colaborador, feriasDoColaborador) {
   const totalAdquirido = periodosCompletos * DIAS_POR_AQUISITIVO;
   const totalUsufruido = feriasDoColaborador.reduce((acc, f) => acc + diffDias(f.dataInicio, f.dataFim), 0);
   const saldoBruto = totalAdquirido - totalUsufruido;
-  const adm = new Date(colaborador.dataAdmissao);
+  const adm = paraData(colaborador.dataAdmissao);
 
   // Simula o saldo em ordem cronológica: cada período aquisitivo concede
   // 15 dias na sua própria data, cada férias registrada consome dias na
@@ -46,7 +58,7 @@ function calcularSaldo(colaborador, feriasDoColaborador) {
     eventos.push({ data: dataConcessao, dias: DIAS_POR_AQUISITIVO, tipo: 'aquisicao' });
   }
   feriasDoColaborador.forEach(f => {
-    eventos.push({ data: new Date(f.dataInicio), dias: -diffDias(f.dataInicio, f.dataFim), tipo: 'uso' });
+    eventos.push({ data: paraData(f.dataInicio), dias: -diffDias(f.dataInicio, f.dataFim), tipo: 'uso' });
   });
   eventos.sort((a, b) => a.data - b.data);
 
@@ -73,7 +85,7 @@ function calcularSaldo(colaborador, feriasDoColaborador) {
 
 function formatarData(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return paraData(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 // ============================================================
@@ -236,8 +248,8 @@ export default function App() {
     const criticos = ativos.filter(c => c.statusSaldo === 'critico').length;
     const atencao = ativos.filter(c => c.statusSaldo === 'atencao').length;
     const emFerias = ferias.filter(f => {
-      const ini = new Date(f.dataInicio);
-      const fim = new Date(f.dataFim);
+      const ini = paraData(f.dataInicio);
+      const fim = paraData(f.dataFim);
       return ini <= HOJE && HOJE <= fim;
     }).length;
     return { totalAtivos: ativos.length, totalDias, criticos, atencao, emFerias };
@@ -520,7 +532,7 @@ export default function App() {
         {colaboradorSelecionado && (() => {
           const c = colaboradoresComSaldo.find(x => x.id === colaboradorSelecionado);
           if (!c) return null;
-          const feriasDoColab = ferias.filter(f => f.colaboradorId === c.id).sort((a, b) => new Date(b.dataInicio) - new Date(a.dataInicio));
+          const feriasDoColab = ferias.filter(f => f.colaboradorId === c.id).sort((a, b) => paraData(b.dataInicio) - paraData(a.dataInicio));
           return (
             <div>
               <button onClick={() => setColaboradorSelecionado(null)} className="text-sm text-slate-500 hover:text-slate-900 mb-4 flex items-center gap-1">← Voltar</button>
